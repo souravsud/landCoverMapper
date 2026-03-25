@@ -10,11 +10,13 @@ from .dummy_model import DummyModel
 from .langsam_model import LangSAMModel
 from .sam2_model import SAM2Model
 
+from models.flair_hub_model import FlairHubModel
 
 REGISTRY: dict[str, type[BaseSegmentationModel]] = {
     "dummy":   DummyModel,
     "langsam": LangSAMModel,
     "sam2":    SAM2Model,
+    "flairhub": FlairHubModel,
 }
 
 
