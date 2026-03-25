@@ -107,7 +107,13 @@ class SAM2Model(BaseSegmentationModel):
             for m in masks_data
         ])
         n = min(self.n_clusters, len(colours))
-        from sklearn.cluster import KMeans
+        try:
+            from sklearn.cluster import KMeans
+        except ImportError:
+            raise ImportError(
+                "scikit-learn not installed.\n"
+                "Run: pip install scikit-learn"
+            )
         km = KMeans(n_clusters=n, random_state=0, n_init="auto")
         km.fit(colours)
         print("[SAM2] Cluster centre colours (R, G, B):")

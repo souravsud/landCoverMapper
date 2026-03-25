@@ -37,6 +37,15 @@ FLAIR_CLASSES = {
 
 class FlairHubModel(BaseSegmentationModel):
 
+    def __init__(self, config: dict):
+        super().__init__(config)
+        # Override: FlairHub's class space is fixed by the checkpoint (19
+        # classes, indices 0-18) and is independent of config["classes"].
+        # BaseSegmentationModel defaults to len(config["classes"]) + 1, which
+        # is wrong here and causes an IndexError in tiler.stitch() when
+        # np.eye(num_classes) is indexed with a value up to 18.
+        self.num_classes = NUM_CLASSES
+
     def load(self):
         # Build SMP UperNet with Swin-Tiny encoder.
         # in_channels=1 matches the checkpoint's decoder architecture: the
