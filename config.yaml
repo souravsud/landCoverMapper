@@ -64,5 +64,5 @@ classes:
 output_dir: ./output
 save_label_map: true       # integer class id raster
 save_visualization: true   # colored PNG
-save_per_class_masks: false
+save_per_class_masks: true
 output_format: tiff        # tiff (preserves georef if available) | png

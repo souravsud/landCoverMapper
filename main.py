@@ -79,7 +79,10 @@ def run(input_path: str, config: dict, model_override: str | None = None) -> Non
     )
 
     # ── Save outputs ───────────────────────────────────────────── #
-    classes = config["classes"]
+    # Use model.get_classes() so models like FlairHub that have a fixed
+    # checkpoint-defined class space (different from config["classes"]) are
+    # visualised and exported correctly.
+    classes = model.get_classes()
 
     if config.get("save_label_map", True):
         ext = "tif" if config.get("output_format", "tiff") == "tiff" else "png"
@@ -107,7 +110,10 @@ def run(input_path: str, config: dict, model_override: str | None = None) -> Non
     # ── Quick class coverage summary ───────────────────────────── #
     total_px = H * W
     print("\nClass coverage:")
-    print(f"  {'background':20s}: {(label_map == 0).sum() / total_px * 100:5.1f}%")
+    # Print a background row only when the model's class list does NOT already
+    # include id=0 (e.g. LangSAM/dummy where 0 means "unlabelled").
+    if not any(c["id"] == 0 for c in classes):
+        print(f"  {'background':20s}: {(label_map == 0).sum() / total_px * 100:5.1f}%")
     for cls in classes:
         pct = (label_map == cls["id"]).sum() / total_px * 100
         print(f"  {cls['name']:20s}: {pct:5.1f}%")

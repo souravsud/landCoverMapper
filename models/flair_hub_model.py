@@ -34,6 +34,36 @@ FLAIR_CLASSES = {
     18: "undefined",
 }
 
+# Semantically-motivated colors for each FLAIR class (RGB uint8).
+# These are used for per-class mask PNGs and the color visualization.
+FLAIR_COLORS = {
+    0:  [220,  60,  60],   # building             – red
+    1:  [255, 182, 193],   # greenhouse           – light pink
+    2:  [  0, 200, 255],   # swimming_pool        – cyan
+    3:  [128, 128, 128],   # impervious_surface   – mid grey
+    4:  [180, 160, 120],   # pervious_surface     – light tan
+    5:  [139,  90,  43],   # bare_soil            – brown
+    6:  [ 30, 100, 220],   # water                – blue
+    7:  [230, 230, 255],   # snow                 – pale blue-white
+    8:  [144, 238, 144],   # herbaceous_vegetation– light green
+    9:  [200, 220, 100],   # agricultural_land    – yellow-green
+    10: [100,  70,  30],   # plowed_land          – dark brown
+    11: [130,  60, 150],   # vineyard             – purple
+    12: [ 34, 139,  34],   # deciduous            – medium green
+    13: [  0,  80,  30],   # coniferous           – dark green
+    14: [120, 120,  50],   # brushwood            – olive
+    15: [200, 180, 120],   # clear_cut            – pale tan
+    16: [ 80,  80,  20],   # ligneous             – dark olive
+    17: [ 60, 120,  60],   # mixed                – muted green
+    18: [ 60,  60,  60],   # undefined            – dark grey
+}
+
+# Canonical class list used by get_classes() / save_per_class_masks / visualization.
+FLAIR_CLASS_LIST = [
+    {"id": idx, "name": name, "color": FLAIR_COLORS[idx]}
+    for idx, name in FLAIR_CLASSES.items()
+]
+
 
 class FlairHubModel(BaseSegmentationModel):
 
@@ -45,6 +75,10 @@ class FlairHubModel(BaseSegmentationModel):
         # is wrong here and causes an IndexError in tiler.stitch() when
         # np.eye(num_classes) is indexed with a value up to 18.
         self.num_classes = NUM_CLASSES
+
+    def get_classes(self) -> list[dict]:
+        """Return the 19 FLAIR-HUB classes with semantic colors."""
+        return FLAIR_CLASS_LIST
 
     def load(self):
         # Build SMP UperNet with Swin-Tiny encoder.
@@ -61,8 +95,16 @@ class FlairHubModel(BaseSegmentationModel):
         self.model = smp.UPerNet(
             encoder_name="tu-swin_tiny_patch4_window7_224",
             encoder_weights=None,
-            in_channels=1,
+            in_channels=1,   # matches checkpoint's decoder.fpn_stages.4.skip_conv (unused at inference)
             classes=NUM_CLASSES,
+        )
+
+        # TILE_SIZE must be divisible by patch_size(4) × window_size(7) = 28.
+        # The only value that satisfies this AND is ≥ 224 (Swin's minimum) is
+        # a multiple of 28.  Changing it without re-training breaks the model.
+        assert TILE_SIZE % 28 == 0, (
+            f"TILE_SIZE ({TILE_SIZE}) must be divisible by 28 "
+            "(patch_size=4 × window_size=7) for Swin window-attention."
         )
 
         # Replace the internal timm model with a version fixed to TILE_SIZE so

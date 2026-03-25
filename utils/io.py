@@ -62,10 +62,30 @@ def save_per_class_masks(
     classes: list[dict],
     output_dir: Path,
 ) -> None:
+    """
+    Saves one RGBA PNG per class.
+
+    Each image is the same size as the label map.  Pixels belonging to the
+    class are filled with the class color at full opacity; all other pixels
+    are fully transparent.  This makes it easy to overlay the masks on the
+    original image in any viewer.
+
+    Files are named ``{id:02d}_{name}.png`` so they sort by class ID in the
+    file browser.
+    """
     from PIL import Image
     output_dir.mkdir(parents=True, exist_ok=True)
+    H, W = label_map.shape
+
     for cls in classes:
-        mask = (label_map == cls["id"]).astype(np.uint8) * 255
-        img  = Image.fromarray(mask)
-        img.save(output_dir / f"mask_{cls['name']}.png")
-    print(f"[IO] Per-class masks saved → {output_dir}")
+        binary = label_map == cls["id"]          # (H, W) bool
+
+        r, g, b = cls["color"]
+        rgba = np.zeros((H, W, 4), dtype=np.uint8)
+        rgba[binary] = [r, g, b, 255]            # class pixels: opaque color
+        # non-class pixels remain [0, 0, 0, 0]   → fully transparent
+
+        fname = f"{cls['id']:02d}_{cls['name']}.png"
+        Image.fromarray(rgba, mode="RGBA").save(output_dir / fname)
+
+    print(f"[IO] Per-class masks saved → {output_dir}  ({len(classes)} files)")
