@@ -50,6 +50,12 @@ class BaseSegmentationModel(ABC):
 
     # ── Optional override ─────────────────────────────────────────────── #
 
+    #: When True, ``predict()`` accepts the full-resolution image directly and
+    #: handles its own internal tiling.  ``main.py`` skips the outer Tiler
+    #: entirely for such models, eliminating an extra blending step that would
+    #: otherwise introduce visible seam artifacts.
+    handles_full_image: bool = False
+
     def predict_batch(self, images: list[np.ndarray]) -> list[np.ndarray]:
         """
         Default: runs predict() one by one.

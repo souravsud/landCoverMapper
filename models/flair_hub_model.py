@@ -67,6 +67,10 @@ FLAIR_CLASS_LIST = [
 
 class FlairHubModel(BaseSegmentationModel):
 
+    #: predict() accepts the full image and handles its own internal tiling,
+    #: so the outer Tiler in main.py is bypassed entirely.
+    handles_full_image: bool = True
+
     def __init__(self, config: dict):
         super().__init__(config)
         # Override: FlairHub's class space is fixed by the checkpoint (19
@@ -104,7 +108,7 @@ class FlairHubModel(BaseSegmentationModel):
         # a multiple of 28.  Changing it without re-training breaks the model.
         assert TILE_SIZE % 28 == 0, (
             f"TILE_SIZE ({TILE_SIZE}) must be divisible by 28 "
-            "(patch_size=4 × window_size=7) for Swin window-attention."
+            "(patch_size=4 x window_size=7) for Swin window-attention."
         )
 
         # Replace the internal timm model with a version fixed to TILE_SIZE so
@@ -123,42 +127,56 @@ class FlairHubModel(BaseSegmentationModel):
         )
         self.model.encoder.model = swin
 
-        # Download weights
-        print(f"Downloading weights from {HF_REPO} ...")
-        weights_path = hf_hub_download(repo_id=HF_REPO, filename=WEIGHTS_FILE)
+        # Load weights: prefer a fine-tuned .pt checkpoint (set via
+        # config key 'flairhub_weights') over the original HuggingFace release.
+        custom_weights = self.config.get("flairhub_weights", None)
+        if custom_weights and Path(custom_weights).exists():
+            print(f"Loading fine-tuned weights from {custom_weights} ...")
+            state = torch.load(custom_weights, map_location="cpu")
+            missing, unexpected = self.model.load_state_dict(state, strict=False)
+            print(f"  Loaded: {len(state)} | Missing: {len(missing)} | "
+                  f"Unexpected: {len(unexpected)}")
+        else:
+            if custom_weights:
+                print(f"[Warning] flairhub_weights={custom_weights!r} not found — "
+                      "falling back to HuggingFace pretrained weights.")
 
-        # Remap checkpoint keys to SMP layout:
-        #   encoder: model.encoders.AERIAL_RGBI.seg_model.model.* -> encoder.model.*
-        #   decoder: model.main_decoders.AERIAL_LABEL-COSIA.seg_model.decoder.* -> decoder.*
-        #   head:    model.main_decoders.AERIAL_LABEL-COSIA.seg_model.segmentation_head.* -> segmentation_head.*
-        remapped = {}
-        with safe_open(weights_path, framework="pt") as f:
-            for k in f.keys():
-                if k.startswith(ENCODER_PREFIX):
-                    short = k[len(ENCODER_PREFIX):]   # model.layers_0...
-                    remapped["encoder." + short] = f.get_tensor(k)
-                elif k.startswith(DECODER_PREFIX):
-                    short = k[len(DECODER_PREFIX):]   # decoder.* or segmentation_head.*
-                    remapped[short] = f.get_tensor(k)
-                # skip criterion.* and fusion_handler.*
+            # Download weights
+            print(f"Downloading weights from {HF_REPO} ...")
+            weights_path = hf_hub_download(repo_id=HF_REPO, filename=WEIGHTS_FILE)
 
-        # Skip shape-mismatched keys instead of crashing
-        model_state = self.model.state_dict()
-        filtered = {}
-        skipped  = []
-        for k, v in remapped.items():
-            if k in model_state and model_state[k].shape != v.shape:
-                skipped.append(f"  SKIP {k}: ckpt={v.shape} vs model={model_state[k].shape}")
-            else:
-                filtered[k] = v
+            # Remap checkpoint keys to SMP layout:
+            #   encoder: model.encoders.AERIAL_RGBI.seg_model.model.* -> encoder.model.*
+            #   decoder: model.main_decoders.AERIAL_LABEL-COSIA.seg_model.decoder.* -> decoder.*
+            #   head:    model.main_decoders.AERIAL_LABEL-COSIA.seg_model.segmentation_head.* -> segmentation_head.*
+            remapped = {}
+            with safe_open(weights_path, framework="pt") as f:
+                for k in f.keys():
+                    if k.startswith(ENCODER_PREFIX):
+                        short = k[len(ENCODER_PREFIX):]   # model.layers_0...
+                        remapped["encoder." + short] = f.get_tensor(k)
+                    elif k.startswith(DECODER_PREFIX):
+                        short = k[len(DECODER_PREFIX):]   # decoder.* or segmentation_head.*
+                        remapped[short] = f.get_tensor(k)
+                    # skip criterion.* and fusion_handler.*
 
-        if skipped:
-            print("Shape-mismatched keys skipped (random init):")
-            for s in skipped:
-                print(s)
+            # Skip shape-mismatched keys instead of crashing
+            model_state = self.model.state_dict()
+            filtered = {}
+            skipped  = []
+            for k, v in remapped.items():
+                if k in model_state and model_state[k].shape != v.shape:
+                    skipped.append(f"  SKIP {k}: ckpt={v.shape} vs model={model_state[k].shape}")
+                else:
+                    filtered[k] = v
 
-        missing, unexpected = self.model.load_state_dict(filtered, strict=False)
-        print(f"  Loaded: {len(filtered)} | Missing: {len(missing)} | Unexpected: {len(unexpected)}")
+            if skipped:
+                print("Shape-mismatched keys skipped (random init):")
+                for s in skipped:
+                    print(s)
+
+            missing, unexpected = self.model.load_state_dict(filtered, strict=False)
+            print(f"  Loaded: {len(filtered)} | Missing: {len(missing)} | Unexpected: {len(unexpected)}")
 
         self.model.eval()
         self.model.to(torch.device("cpu"))
@@ -166,17 +184,31 @@ class FlairHubModel(BaseSegmentationModel):
 
     def predict(self, image: np.ndarray) -> np.ndarray:
         """
+        Runs inference on an arbitrarily-sized image using overlapping
+        448x448 sub-tiles.  Raw logits are accumulated with a 2-D Gaussian
+        weight kernel so each pixel's prediction is dominated by sub-tiles
+        in which it appears near the centre, eliminating seam artifacts.
+
         Args:
             image: H x W x 3 numpy uint8 array
         Returns:
-            H x W integer label map (class indices 0-18)
+            H x W int64 label map (class indices 0-18)
         """
+        from scipy.ndimage import gaussian_filter
+
         h, w = image.shape[:2]
         img  = (image.astype(np.float32) - FLAIR_MEAN) / FLAIR_STD
 
-        stride      = TILE_SIZE // 2   # 50% overlap for smoother borders
-        logit_accum = np.zeros((NUM_CLASSES, h, w), dtype=np.float32)
-        count_map   = np.zeros((h, w), dtype=np.float32)
+        # Build a Gaussian weight kernel for one sub-tile (same approach as
+        # the outer Tiler so blending is consistent across both tiling levels).
+        _gauss_centre = np.zeros((TILE_SIZE, TILE_SIZE), dtype=np.float32)
+        _gauss_centre[TILE_SIZE // 2, TILE_SIZE // 2] = 1.0
+        weight_kernel = gaussian_filter(_gauss_centre, sigma=TILE_SIZE / 6)
+        weight_kernel /= weight_kernel.max()   # peak = 1.0
+
+        stride       = TILE_SIZE // 2          # 50 % overlap → 224 px
+        logit_accum  = np.zeros((NUM_CLASSES, h, w), dtype=np.float32)
+        weight_accum = np.zeros((h, w), dtype=np.float32)
 
         ys    = list(range(0, h, stride))
         xs    = list(range(0, w, stride))
@@ -192,19 +224,25 @@ class FlairHubModel(BaseSegmentationModel):
                 # Pad to TILE_SIZE if near image edges
                 pad_h, pad_w = TILE_SIZE - th, TILE_SIZE - tw
                 if pad_h > 0 or pad_w > 0:
-                    tile = np.pad(tile, ((0, pad_h), (0, pad_w), (0, 0)), mode="reflect")
+                    tile = np.pad(tile, ((0, pad_h), (0, pad_w), (0, 0)),
+                                  mode="reflect")
 
-                tensor = torch.from_numpy(tile.transpose(2, 0, 1)).unsqueeze(0)  # (1,3,448,448)
+                tensor = torch.from_numpy(
+                    tile.transpose(2, 0, 1)
+                ).unsqueeze(0)  # (1, 3, 448, 448)
 
                 with torch.no_grad():
-                    logits = self.model(tensor).squeeze(0).numpy()  # (19,448,448)
+                    logits = self.model(tensor).squeeze(0).numpy()  # (19, 448, 448)
 
-                logit_accum[:, y:y2, x:x2] += logits[:, :th, :tw]
-                count_map[y:y2, x:x2]       += 1.0
+                # Gaussian-weighted accumulation (crop to valid region only)
+                w_crop = weight_kernel[:th, :tw]
+                logit_accum[:, y:y2, x:x2] += logits[:, :th, :tw] * w_crop
+                weight_accum[y:y2, x:x2]   += w_crop
 
                 done += 1
-                print(f"  Tile {done}/{total}", end="\r")
+                print(f"  Sub-tile {done}/{total}", end="\r")
 
         print()
-        logit_accum /= np.maximum(count_map[np.newaxis], 1)
+        weight_accum = np.maximum(weight_accum, 1e-6)
+        logit_accum /= weight_accum[np.newaxis]
         return np.argmax(logit_accum, axis=0).astype(np.int64)

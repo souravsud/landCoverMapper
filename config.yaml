@@ -3,13 +3,20 @@
 # ─────────────────────────────────────────────
 
 # --- Tiling ---
+# These settings apply only to models that do NOT handle tiling internally
+# (i.e. LangSAM, SAM2, dummy).  FlairHub bypasses the outer tiler completely
+# and manages its own 448-px sub-tiles with Gaussian-weighted logit blending.
 tile_size: 1024        # pixels per tile (square)
-overlap: 128           # overlap between adjacent tiles (px)
+overlap: 256           # overlap between adjacent tiles (px) — larger = smoother seams
 blend_mode: gaussian   # gaussian | linear | hard
 
 # --- Model ---
-# Options: langsam | sam2 | dummy
-active_model: langsam
+# Options: langsam | sam2 | dummy | flairhub
+active_model: flairhub
+
+# Optional: path to fine-tuned weights produced by finetune.py
+# If set, this overrides the default HuggingFace FLAIR-HUB checkpoint.
+# flairhub_weights: ./finetuned_weights/best.pt
 
 # --- Land Use Classes ---
 # prompt: text used by LangSAM / vision-language models

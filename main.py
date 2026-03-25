@@ -50,33 +50,44 @@ def run(input_path: str, config: dict, model_override: str | None = None) -> Non
     H, W  = image.shape[:2]
     print(f"      {W} × {H} px")
 
-    # ── 2. Tile ────────────────────────────────────────────────── #
-    print("\n[2/4] Tiling ...")
-    tiler = Tiler(
-        tile_size  = config.get("tile_size",  1024),
-        overlap    = config.get("overlap",    128),
-        blend_mode = config.get("blend_mode", "gaussian"),
-    )
-    tiles = list(tiler.tile_image(image))
-    print(f"      {len(tiles)} tiles (tile_size={tiler.tile_size}, overlap={tiler.overlap})")
-
-    # ── 3. Inference ───────────────────────────────────────────── #
-    print(f"\n[3/4] Running model: {config['active_model']} ...")
+    # ── 2+3. Tile & Inference ──────────────────────────────────── #
     model = get_model(config)
     model.load()
 
-    tiles_and_masks = []
-    for tile in tqdm(tiles, desc="Inference", unit="tile"):
-        mask = model.predict(tile.image)
-        tiles_and_masks.append((tile, mask))
+    if model.handles_full_image:
+        # Model manages its own internal tiling with logit-level blending —
+        # bypassing the outer Tiler eliminates the extra seam-artifact layer
+        # that would otherwise be introduced by blending hard one-hot labels.
+        print(f"\n[2/4] Tiling — skipped (model handles full image internally)")
+        print(f"\n[3/4] Running model: {config['active_model']} ...")
+        label_map = model.predict(image)
 
-    # ── 4. Stitch ──────────────────────────────────────────────── #
-    print("\n[4/4] Stitching ...")
-    label_map = tiler.stitch(
-        tiles_and_masks,
-        original_shape=(H, W),
-        num_classes=model.num_classes,
-    )
+        print(f"\n[4/4] Stitching — skipped (done inside model)")
+
+    else:
+        # Standard outer-tiler path for models that expect fixed-size crops
+        print("\n[2/4] Tiling ...")
+        tiler = Tiler(
+            tile_size  = config.get("tile_size",  1024),
+            overlap    = config.get("overlap",     256),
+            blend_mode = config.get("blend_mode", "gaussian"),
+        )
+        tiles = list(tiler.tile_image(image))
+        print(f"      {len(tiles)} tiles "
+              f"(tile_size={tiler.tile_size}, overlap={tiler.overlap})")
+
+        print(f"\n[3/4] Running model: {config['active_model']} ...")
+        tiles_and_masks = []
+        for tile in tqdm(tiles, desc="Inference", unit="tile"):
+            mask = model.predict(tile.image)
+            tiles_and_masks.append((tile, mask))
+
+        print("\n[4/4] Stitching ...")
+        label_map = tiler.stitch(
+            tiles_and_masks,
+            original_shape=(H, W),
+            num_classes=model.num_classes,
+        )
 
     # ── Save outputs ───────────────────────────────────────────── #
     # Use model.get_classes() so models like FlairHub that have a fixed
