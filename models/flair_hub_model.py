@@ -45,6 +45,10 @@ class FlairHubModel(BaseSegmentationModel):
         # That stage is never exercised during inference (see FPN zip logic), so
         # using 1 here has no effect on accuracy while avoiding a spurious
         # shape-mismatch warning during weight loading.
+        # NOTE: The actual encoder model (swin, set below) is created fresh with
+        # the default in_chans=3 and processes 3-channel RGB input at runtime.
+        # The in_channels=1 here only affects the shape of the single unused
+        # decoder weight (decoder.fpn_stages.4.skip_conv), not the inference path.
         self.model = smp.UPerNet(
             encoder_name="tu-swin_tiny_patch4_window7_224",
             encoder_weights=None,
@@ -54,8 +58,10 @@ class FlairHubModel(BaseSegmentationModel):
 
         # Replace the internal timm model with a version fixed to TILE_SIZE so
         # that Swin's window-attention works on 448×448 tiles.
-        # Using img_size=TILE_SIZE is compatible with all timm versions (0.9+),
-        # whereas dynamic_img_size=True is only available in timm ≥1.0.
+        # This approach (img_size=TILE_SIZE) works with all timm versions ≥0.9
+        # and is preferred over dynamic_img_size=True, which is only available in
+        # timm ≥1.0. Since all tiles are padded to exactly TILE_SIZE before
+        # inference, fixing the size here is always correct.
         # out_indices must match what SMP's UPerNet encoder expects: [0,1,2,3]
         swin = timm.create_model(
             "swin_tiny_patch4_window7_224",
