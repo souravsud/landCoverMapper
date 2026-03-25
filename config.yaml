@@ -1,0 +1,68 @@
+# ─────────────────────────────────────────────
+#  Land Use Mapper — Configuration
+# ─────────────────────────────────────────────
+
+# --- Tiling ---
+tile_size: 1024        # pixels per tile (square)
+overlap: 128           # overlap between adjacent tiles (px)
+blend_mode: gaussian   # gaussian | linear | hard
+
+# --- Model ---
+# Options: langsam | sam2 | dummy
+active_model: langsam
+
+# --- Land Use Classes ---
+# prompt: text used by LangSAM / vision-language models
+# color: RGB for visualization
+# priority: higher number = overwrites lower in conflict zones
+classes:
+  - id: 1
+    name: vegetation_low
+    prompt: "grass lawn meadow ground cover"
+    color: [144, 238, 144]
+    priority: 1
+
+  - id: 2
+    name: vegetation_medium
+    prompt: "shrubs bushes hedgerow low trees"
+    color: [34, 139, 34]
+    priority: 2
+
+  - id: 3
+    name: vegetation_high
+    prompt: "tall trees forest canopy woodland"
+    color: [0, 80, 0]
+    priority: 3
+
+  - id: 4
+    name: building
+    prompt: "building rooftop house structure barn"
+    color: [220, 50, 50]
+    priority: 6
+
+  - id: 5
+    name: road
+    prompt: "road street path track pavement gravel"
+    color: [160, 160, 160]
+    priority: 5
+
+  - id: 6
+    name: open_ground
+    prompt: "bare soil dirt field earth unpaved"
+    color: [210, 180, 140]
+    priority: 0
+
+  - id: 7
+    name: water
+    prompt: "water river stream lake pond"
+    color: [30, 100, 220]
+    priority: 7
+
+# class id=0 is always reserved for "unlabelled / background"
+
+# --- Output ---
+output_dir: ./output
+save_label_map: true       # integer class id raster
+save_visualization: true   # colored PNG
+save_per_class_masks: false
+output_format: tiff        # tiff (preserves georef if available) | png

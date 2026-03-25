@@ -1,0 +1,23 @@
+# Core
+numpy
+Pillow
+pyyaml
+tqdm
+scipy
+scikit-learn
+
+# Geospatial (optional but recommended for GeoTIFF support)
+rasterio
+
+# --- Model backends (install the one you need) ---
+
+# LangSAM (recommended starting point — zero-shot, no labels)
+# pip install git+https://github.com/luca-medeiros/lang-segment-anything.git
+
+# SAM2 (Meta)
+# pip install git+https://github.com/facebookresearch/segment-anything-2.git
+# Then download a checkpoint from: https://ai.meta.com/sam2/
+
+# PyTorch — install separately from pytorch.org for your platform
+# For AMD GPU on Linux (ROCm): https://pytorch.org/get-started/locally/
+# For CPU-only: pip install torch torchvision
