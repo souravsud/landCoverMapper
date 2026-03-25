@@ -11,6 +11,12 @@ rasterio
 
 # --- Model backends (install the one you need) ---
 
+# FLAIR-HUB (UPerNet + Swin-Tiny from HuggingFace)
+segmentation-models-pytorch>=0.4.0,<0.5.0
+timm>=0.9.0
+huggingface-hub>=0.16.0
+safetensors>=0.3.0
+
 # LangSAM (recommended starting point — zero-shot, no labels)
 # pip install git+https://github.com/luca-medeiros/lang-segment-anything.git
 

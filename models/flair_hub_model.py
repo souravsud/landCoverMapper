@@ -38,25 +38,33 @@ FLAIR_CLASSES = {
 class FlairHubModel(BaseSegmentationModel):
 
     def load(self):
-        # Build SMP UperNet with Swin-Tiny encoder
+        # Build SMP UperNet with Swin-Tiny encoder.
+        # in_channels=1 matches the checkpoint's decoder architecture: the
+        # original FLAIR-HUB model was saved with a 1-channel placeholder for
+        # the input-level FPN skip connection (decoder.fpn_stages.4.skip_conv).
+        # That stage is never exercised during inference (see FPN zip logic), so
+        # using 1 here has no effect on accuracy while avoiding a spurious
+        # shape-mismatch warning during weight loading.
         self.model = smp.UPerNet(
             encoder_name="tu-swin_tiny_patch4_window7_224",
             encoder_weights=None,
-            in_channels=3,
+            in_channels=1,
             classes=NUM_CLASSES,
         )
 
-        # Replace the internal timm model with dynamic_img_size=True so that
-        # Swin recomputes attention masks per forward pass (instead of fixed 224).
-        # out_indices must match what SMP's UperNet encoder expects: [0,1,2,3]
-        dynamic_swin = timm.create_model(
+        # Replace the internal timm model with a version fixed to TILE_SIZE so
+        # that Swin's window-attention works on 448×448 tiles.
+        # Using img_size=TILE_SIZE is compatible with all timm versions (0.9+),
+        # whereas dynamic_img_size=True is only available in timm ≥1.0.
+        # out_indices must match what SMP's UPerNet encoder expects: [0,1,2,3]
+        swin = timm.create_model(
             "swin_tiny_patch4_window7_224",
             pretrained=False,
             features_only=True,
-            dynamic_img_size=True,
+            img_size=TILE_SIZE,
             out_indices=[0, 1, 2, 3],
         )
-        self.model.encoder.model = dynamic_swin
+        self.model.encoder.model = swin
 
         # Download weights
         print(f"Downloading weights from {HF_REPO} ...")
