@@ -1,1 +1,3 @@
 perdigao_aerialPhotographs/
+__pycache__/
+*.pyc

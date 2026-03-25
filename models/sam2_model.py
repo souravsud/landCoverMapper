@@ -17,7 +17,6 @@ Install:
 from __future__ import annotations
 
 import numpy as np
-from sklearn.cluster import KMeans
 
 from .base_model import BaseSegmentationModel
 
@@ -73,6 +72,13 @@ class SAM2Model(BaseSegmentationModel):
         segment_colours = np.array(segment_colours)
 
         # 3. Cluster segments by colour → pseudo land-use groups
+        try:
+            from sklearn.cluster import KMeans
+        except ImportError:
+            raise ImportError(
+                "scikit-learn not installed.\n"
+                "Run: pip install scikit-learn"
+            )
         n = min(self.n_clusters, len(segment_colours))
         km = KMeans(n_clusters=n, random_state=0, n_init="auto")
         cluster_ids = km.fit_predict(segment_colours)
@@ -101,6 +107,13 @@ class SAM2Model(BaseSegmentationModel):
             for m in masks_data
         ])
         n = min(self.n_clusters, len(colours))
+        try:
+            from sklearn.cluster import KMeans
+        except ImportError:
+            raise ImportError(
+                "scikit-learn not installed.\n"
+                "Run: pip install scikit-learn"
+            )
         km = KMeans(n_clusters=n, random_state=0, n_init="auto")
         km.fit(colours)
         print("[SAM2] Cluster centre colours (R, G, B):")

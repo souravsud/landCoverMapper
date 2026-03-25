@@ -50,6 +50,12 @@ class BaseSegmentationModel(ABC):
 
     # ── Optional override ─────────────────────────────────────────────── #
 
+    #: When True, ``predict()`` accepts the full-resolution image directly and
+    #: handles its own internal tiling.  ``main.py`` skips the outer Tiler
+    #: entirely for such models, eliminating an extra blending step that would
+    #: otherwise introduce visible seam artifacts.
+    handles_full_image: bool = False
+
     def predict_batch(self, images: list[np.ndarray]) -> list[np.ndarray]:
         """
         Default: runs predict() one by one.
@@ -58,6 +64,22 @@ class BaseSegmentationModel(ABC):
         return [self.predict(img) for img in images]
 
     # ── Helpers available to all subclasses ───────────────────────────── #
+
+    def get_classes(self) -> list[dict]:
+        """
+        Returns the list of class dicts that this model's label map uses.
+
+        Each dict must contain at least:
+            id    (int)   – integer value used in the label map
+            name  (str)   – human-readable name
+            color (list)  – [R, G, B] uint8 color for visualization
+
+        The default implementation returns ``config["classes"]`` (the classes
+        defined in config.yaml).  Override this in subclasses whose class
+        space is determined by the checkpoint rather than the config
+        (e.g. FlairHubModel).
+        """
+        return self.classes
 
     def _build_priority_order(self) -> list[dict]:
         """Returns classes sorted lowest priority first (so high-priority overwrites)."""
